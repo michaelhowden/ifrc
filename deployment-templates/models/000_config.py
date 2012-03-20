@@ -536,7 +536,7 @@ deployment_settings.modules = OrderedDict([
     #        module_type = 10,
     #    )),
     ("irs", Storage(
-            name_nice = T("Events"),
+            name_nice = T("Incidents"),
             description = T("Situational Awareness"),
             restricted = True,
             module_type = 10
@@ -549,12 +549,12 @@ deployment_settings.modules = OrderedDict([
     #        module_type = 10,
     #    )),
     # Event depends on HRM
-    #("event", Storage(
-    #        name_nice = T("Events"),
-    #        description = T("Activate Events from Scenario templates for allocation of appropriate Resources (Human, Assets & Facilities)."),
-    #        restricted = True,
-    #        module_type = 10,
-    #    )),
+    ("event", Storage(
+            name_nice = T("Events"),
+            description = T("Activate Events from Scenario templates for allocation of appropriate Resources (Human, Assets & Facilities)."),
+            restricted = True,
+            module_type = 10,
+        )),
     # NB Budget module depends on Project Tracking Module
     # @ToDo: Rewrite in a modern style
     #("budget", Storage(

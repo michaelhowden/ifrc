@@ -1208,8 +1208,15 @@ def complete():
             print >> sys.stderr, "ERROR: xlrd & xlwt modules are needed for importing spreadsheets"
             return None
         workbook = xlrd.open_workbook(file_contents=uploadFile)
-        sheetR = workbook.sheet_by_name("Assessment")
-        sheetM = workbook.sheet_by_name("Metadata")
+        try:
+            sheetR = workbook.sheet_by_name("Assessment")
+            sheetM = workbook.sheet_by_name("Metadata")
+        except:
+            session.error = T("You need to use the spreadsheet which you can download from this page") 
+            redirect(URL(c="survey",
+                     f="newAssessment",
+                     args=[],
+                     vars = {"viewing":"survey_series.%s" % series_id}))
         header = ''
         body = ''
         for row in xrange(1, sheetM.nrows):
@@ -1256,11 +1263,22 @@ def complete():
                             answerList = optionList[col]
                     else:
                         if type == "Date":
-                            (dtYear, dtMonth, dtDay, dtHour, dtMinute, dtSecond) = \
-                                     xlrd.xldate_as_tuple(cellValue,
-                                                          workbook.datemode)
-                            dtValue = date(dtYear, dtMonth, dtDay)
-                            cellValue = dtValue.isoformat()
+                            try:
+                                (dtYear, dtMonth, dtDay, dtHour, dtMinute, dtSecond) = \
+                                         xlrd.xldate_as_tuple(cellValue,
+                                                              workbook.datemode)
+                                dtValue = date(dtYear, dtMonth, dtDay)
+                                cellValue = dtValue.isoformat()
+                            except:
+                                pass
+                        elif type == "Time":
+                            try:
+                                time = cellValue
+                                hour = int(time*24)
+                                minute = int((time*24-hour)*60)
+                                cellValue = "%s:%s" % (hour, minute)
+                            except:
+                                pass
                         answerList += "%s" % cellValue
             body += ',"%s"' % answerList
         openFile.write(header)

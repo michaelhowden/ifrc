@@ -152,7 +152,8 @@ class AuthS3(Auth):
             shelter = T("Shelter")
         self.org_site_types = Storage(
                                       cr_shelter = shelter,
-                                      org_facility = T("Facility"),
+                                      #org_facility = T("Facility"),
+                                      org_facility = T("Site"),
                                       org_office = T("Office"),
                                       hms_hospital = T("Hospital"),
                                       #project_site = T("Project Site"),
@@ -3068,13 +3069,14 @@ class S3Permission(object):
             return False
 
         permitted = True
-        if self.use_cacls:
-            acl = self(c=c, f=f, table=tablename)
-            if acl & permission != permission:
-                permitted = False
-        else:
-            if permission != self.READ:
-                permitted = self.auth.s3_logged_in()
+        if not self.auth.override:
+            if self.use_cacls:
+                acl = self(c=c, f=f, table=tablename)
+                if acl & permission != permission:
+                    permitted = False
+            else:
+                if permission != self.READ:
+                    permitted = self.auth.s3_logged_in()
 
         if permitted:
             return URL(a=a,

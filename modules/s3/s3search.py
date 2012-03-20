@@ -1713,7 +1713,7 @@ class S3Search(S3CRUD):
 
         # We want to do case-insensitive searches
         # (default anyway on MySQL/SQLite, but not PostgreSQL)
-        value = value.lower()
+        value = value.lower().strip()
 
         if _vars.field and _vars.filter and value:
             fieldname = str.lower(_vars.field)
@@ -1728,7 +1728,7 @@ class S3Search(S3CRUD):
             filter = _vars.filter
             if filter == "~":
                 # Normal single-field Autocomplete
-                query = (field.lower().like("%" + value + "%"))
+                query = (field.lower().like(value + "%"))
 
             elif filter == "=":
                 if field.type.split(" ")[0] in \
@@ -2120,7 +2120,7 @@ class S3LocationSearch(S3Search):
         # We want to do case-insensitive searches
         # (default anyway on MySQL/SQLite, but not PostgreSQL)
         if value:
-            value = value.lower()
+            value = value.lower().strip()
 
         query = None
         fields = []
@@ -2190,8 +2190,8 @@ class S3LocationSearch(S3Search):
                 if children:
                     # New LocationSelector
                     children = gis.get_children(children, level=level)
-                    #children = children.find(lambda row: \
-                    #                         value in str.lower(row.name))
+                    children = children.find(lambda row: \
+                                             row.name and value in str.lower(row.name))
                     output = children.json()
                     response.headers["Content-Type"] = "application/json"
                     return output
@@ -2199,18 +2199,18 @@ class S3LocationSearch(S3Search):
                 if exclude_field and exclude_value:
                     # Old LocationSelector
                     # Filter out poor-quality data, such as from Ushahidi
-                    query = (field.lower().like("%" + value + "%")) & \
+                    query = (field.lower().like(value + "%")) & \
                             ((table[exclude_field].lower() != exclude_value) | \
                              (table[exclude_field] == None))
 
                 elif field2:
                     # New LocationSelector
-                    query = ((field.lower().like("%" + value + "%")) | \
-                             (field2.lower().like("%" + value + "%")))
+                    query = ((field.lower().like(value + "%")) | \
+                             (field2.lower().like(value + "%")))
 
                 else:
                     # Normal single-field
-                    query = (field.lower().like("%" + value + "%"))
+                    query = (field.lower().like(value + "%"))
 
                 if level:
                     resource.add_filter(query)
@@ -2323,7 +2323,7 @@ class S3OrganisationSearch(S3Search):
 
         # We want to do case-insensitive searches
         # (default anyway on MySQL/SQLite, but not PostgreSQL)
-        value = value.lower()
+        value = value.lower().strip()
 
         filter = _vars.filter
         limit = int(_vars.limit or 0)
@@ -2337,14 +2337,8 @@ class S3OrganisationSearch(S3Search):
             fields = [table.id, field, field2]
 
             if filter == "~":
-                # pr_person Autocomplete
-                if " " in value:
-                    value1, value2 = value.split(" ", 1)
-                    query = (field.lower().like("%" + value1 + "%")) & \
-                            (field2.lower().like("%" + value2 + "%"))
-                else:
-                    query = (field.lower().like("%" + value + "%")) | \
-                            (field2.lower().like("%" + value + "%"))
+                query = (field.lower().like(value + "%")) | \
+                        (field2.lower().like(value + "%"))
 
             else:
                 output = xml.json_message(False,
@@ -2423,13 +2417,15 @@ class S3PersonSearch(S3Search):
                 # pr_person Autocomplete
                 if " " in value:
                     value1, value2 = value.split(" ", 1)
-                    query = (field.lower().like("%" + value1 + "%")) & \
-                            (field2.lower().like("%" + value2 + "%")) | \
-                            (field3.lower().like("%" + value2 + "%"))
+                    value2 = value2.strip()
+                    query = (field.lower().like(value1 + "%")) & \
+                            (field2.lower().like(value2 + "%")) | \
+                            (field3.lower().like(value2 + "%"))
                 else:
-                    query = ((field.lower().like("%" + value + "%")) | \
-                            (field2.lower().like("%" + value + "%")) | \
-                            (field3.lower().like("%" + value + "%")))
+                    value = value.strip()
+                    query = ((field.lower().like(value + "%")) | \
+                            (field2.lower().like(value + "%")) | \
+                            (field3.lower().like(value + "%")))
 
             else:
                 output = xml.json_message(False,
@@ -2508,13 +2504,15 @@ class S3PentitySearch(S3Search):
                 # pr_person Autocomplete
                 if " " in value:
                     value1, value2 = value.split(" ", 1)
-                    query = (field.lower().like("%" + value1 + "%")) & \
-                            (field2.lower().like("%" + value2 + "%")) | \
-                            (field3.lower().like("%" + value2 + "%"))
+                    value2 = value2.strip()
+                    query = (field.lower().like(value1 + "%")) & \
+                            (field2.lower().like(value2 + "%")) | \
+                            (field3.lower().like(value2 + "%"))
                 else:
-                    query = ((field.lower().like("%" + value + "%")) | \
-                            (field2.lower().like("%" + value + "%")) | \
-                            (field3.lower().like("%" + value + "%")))
+                    value = value.strip()
+                    query = ((field.lower().like(value + "%")) | \
+                            (field2.lower().like(value + "%")) | \
+                            (field3.lower().like(value + "%")))
             else:
                 output = xml.json_message(False,
                                           400,

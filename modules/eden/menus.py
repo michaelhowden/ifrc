@@ -299,6 +299,21 @@ class S3MainMenu:
                 )
         return gis_menu
 
+    @staticmethod
+    def menu_climate(**attr):
+        settings = current.deployment_settings
+        module = settings.modules["climate"]
+        menu_climate = MM(
+            module.name_nice,
+            c="climate",
+            **attr
+        )(
+            MM("Station Parameters", f="station_parameter"),
+            #MM("Saved Queries", f="save_query"),
+            MM("Purchase Data", f="purchase"),
+        )
+        return menu_climate
+
 # =============================================================================
 class S3OptionsMenu:
     """
@@ -643,7 +658,11 @@ class S3OptionsMenu:
 
         return M(c="gis")(
                     M("Fullscreen Map", f="map_viewing_client"),
-                    M("Locations", f="location")(
+                    M("Configuration", f="config"),
+                    # Currently not got geocoding support
+                    #M("Bulk Uploader", c="doc", f="bulk_upload"),
+                    M("Locations", f="location",
+                      restrict=[MAP_ADMIN])(
                         M("New Location", m="create"),
                         M("New Location Group", m="create", vars={"group": 1}),
                         M("List All"),
@@ -651,9 +670,6 @@ class S3OptionsMenu:
                         M("Import", m="import"),
                         #M("Geocode", f="geocode_manual"),
                     ),
-                    M("Configuration", f="config"),
-                    # Currently not got geocoding support
-                    #M("Bulk Uploader", c="doc", f="bulk_upload")
                     M("Admin", restrict=[MAP_ADMIN])(
                         M("Hierarchy", f="hierarchy"),
                         M("Markers", f="marker"),
@@ -840,7 +856,17 @@ class S3OptionsMenu:
                       restrict=[ADMIN])(
                         M("New Item Category", m="create"),
                         M("List All"),
-                    )
+                    ),
+                    M("Requests", c="req", f="req")(
+                        M("New", m="create"),
+                        M("List All"),
+                        M("List All Requested Items", f="req_item"),
+                        M("List All Requested Skills", f="req_skill"),
+                        #M("Search Requested Items", f="req_item", m="search"),
+                    ),
+                    M("Commitments", c="req", f="commit")(
+                        M("List All")
+                    ),
                 )
 
     # -------------------------------------------------------------------------
@@ -869,8 +895,8 @@ class S3OptionsMenu:
                         M("New", m="create"),
                         M("List All"),
                     ),
-                    M("Ushahidi " + T("Import"), f="ireport", restrict=[ADMIN],
-                      args="ushahidi")
+                    #M("Ushahidi " + T("Import"), f="ireport", restrict=[ADMIN],
+                    #  args="ushahidi")
                 )
 
     # -------------------------------------------------------------------------
@@ -1046,13 +1072,17 @@ class S3OptionsMenu:
 
         settings = current.deployment_settings
         if settings.get_project_community_activity():
+            activities_label = "Communities"
             list_activities_label = "List All Communities"
             list_activity_contacts_label = "List All Community Contacts"
+            search_activity_contacts_label = "Search Community Contacts"
             import_activities_label = "Import Project Communities"
         else:
+            activities_label = "Activities"
             list_activities_label = "List All Activities"
             # @ToDo: These should always be Community Contacts as that's what they are...however they shouldn't link to Activities...
             list_activity_contacts_label = "List All Activity Contacts"
+            search_activity_contacts_label = "Search Activity Contacts"
             import_activities_label = "Import Project Activities"
 
         project_menu = M(c="project")
@@ -1062,15 +1092,19 @@ class S3OptionsMenu:
                     M("Projects", f="project")(
                         M("Add New Project", m="create"),
                         M("List All Projects", f="project"),
-                        M(list_activities_label, f="activity"),
-                        M(list_activity_contacts_label, f="activity_contact"),
                         M("Search", m="search"),
+                    ),
+                    M(activities_label, f="activity")(
+                        M(list_activities_label),
+                        M(list_activity_contacts_label, f="activity_contact"),
+                        M(search_activity_contacts_label, f="activity_contact",
+                          m="search"),
                     ),
                     M("Reports", f="report")(
                         M("Who is doing What Where", f="activity", m="report"),
                         M("Beneficiaries", f="beneficiary", m="report",
                           vars=Storage(rows="project_id",
-                                       cols="beneficiary_type_id$name",
+                                       cols="beneficiary_type_id",
                                        fact="number",
                                        aggregate="sum")),
                         M("Funding", f="organisation", args="report"),

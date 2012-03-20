@@ -46,6 +46,7 @@ from ..s3 import *
 try:
     from lxml import etree, html
 except ImportError:
+    import sys
     print >> sys.stderr, "ERROR: lxml module needed for XML handling"
     raise
 
@@ -103,6 +104,7 @@ class S3ProjectModel(S3Model):
 
         # Shortcuts
         add_component = self.add_component
+        comments = s3.comments
         configure = self.configure
         crud_strings = s3.crud_strings
         define_table = self.define_table
@@ -287,6 +289,9 @@ class S3ProjectModel(S3Model):
                                    writable = drr,
                                    label = T("Objectives")),
                              human_resource_id(label=T("Contact Person")),
+                             comments(comment=DIV(_class="tooltip",
+                                                  _title="%s|%s" % (T("Comments"),
+                                                                    T("Outcomes, Impact, Challenges")))),
                              format="%(name)s",
                              *meta_fields())
 
@@ -554,7 +559,7 @@ class S3ProjectModel(S3Model):
                                    writable=False,
                                    label = "%s (%s)" % (T("Time Taken"),
                                                         T("hours"))),
-                             s3.comments(),
+                             comments(),
                              format="%(name)s",
                              *meta_fields())
 
@@ -641,9 +646,20 @@ class S3ProjectModel(S3Model):
             lh = [(lh[opt], opt) for opt in lh]
             report_fields.extend(lh)
             append("location_id")
+            list_fields = ["name",
+                           "project_id",
+                           "multi_activity_type_id",
+                           "comments"
+                        ]
         else:
             append((T("Time Estimated"), "time_estimated"))
             append((T("Time Actual"), "time_actual"))
+            list_fields = ["name",
+                           "project_id",
+                           "location_id",
+                           "multi_activity_type_id",
+                           "comments"
+                        ]
 
         if drr:
             next = "beneficiary"
@@ -654,17 +670,12 @@ class S3ProjectModel(S3Model):
                   create_next=URL(c="project", f="activity",
                                   args=["[id]", next]),
                   search_method=project_activity_search,
-                  onaccept=self.project_activity_onaccept,
+                  onvalidation=self.project_activity_onvalidation,
                   deduplicate=self.project_activity_deduplicate,
                   report_rows=report_fields,
                   report_cols=report_fields,
                   report_fact=report_fields,
-                  list_fields = ["name",
-                                 "project_id",
-                                 #"location_id",
-                                 "multi_activity_type_id",
-                                 "comments"
-                                 ]
+                  list_fields = list_fields,
                   )
 
         # Reusable Field
@@ -750,9 +761,32 @@ class S3ProjectModel(S3Model):
             msg_record_deleted = T("Contact Deleted"),
             msg_list_empty = T("No Contacts Found"))
 
+        activity_contact_search = S3Search(
+            advanced=(S3SearchSimpleWidget(
+                            name = "activity_contact_search_simple",
+                            label = T("Name"),
+                            comment = T("You can search by person name - enter any of the first, middle or last names, separated by spaces. You may use % as wildcard. Press 'Search' without input to list all persons."),
+                            field = ["person_id$first_name",
+                                     "person_id$middle_name",
+                                     "person_id$last_name"
+                                    ]
+                        ),
+                        S3SearchLocationHierarchyWidget(
+                            name="activity_contact_search_L1",
+                            field="person_id$L1",
+                            cols = 3,
+                        ),
+                        S3SearchLocationHierarchyWidget(
+                            name="activity_contact_search_L2",
+                            field="person_id$L2",
+                            cols = 3,
+                        ),
+                    ))
+
         # Resource configuration
         hierarchy = current.gis.get_location_hierarchy()
         configure(tablename,
+                  search_method=activity_contact_search,
                   list_fields=["activity_id",
                                (T("Project"), "activity_id$project_id"),
                                "person_id",
@@ -892,9 +926,11 @@ class S3ProjectModel(S3Model):
                 s3_debug("project_deduplicate", exception.message)
             else:
                 duplicate = current.db(query).select(table.id,
+                                                     table.name,
                                                      limitby=(0, 1)).first()
                 if duplicate:
                     item.id = duplicate.id
+                    item.data.name = duplicate.name
                     item.method = item.METHOD.UPDATE
         return
 
@@ -974,23 +1010,26 @@ class S3ProjectModel(S3Model):
 
     # ---------------------------------------------------------------------
     @staticmethod
-    def project_activity_onaccept(form):
-        """ Record creation post-processing """
+    def project_activity_onvalidation(form):
+        """ """
 
-        db = current.db
-        s3db = current.s3db
-        settings = current.deployment_settings
-        pca = settings.get_project_community_activity()
+        pca = current.deployment_settings.get_project_community_activity()
 
-        if not pca:
-           if "name" in form.vars and \
-              form.vars.name and form.vars.location_id:
+        if pca:
+            location_id = form.vars.location_id
+            if location_id:
+                db = current.db
+                s3db = current.s3db
                 table = s3db.gis_location
                 query = (table.id == form.vars.location_id)
-                row = db(query).select(table.id, table.level,
+                row = db(query).select(table.parent,
                                        limitby=(0, 1)).first()
-                if row and not row.level:
-                    row.update_record(name=form.vars.name)
+                if row and row.parent:
+                    query = (table.id == row.parent)
+                    parent = db(query).select(table.name,
+                                              limitby=(0, 1)).first()
+                    if parent:
+                        form.vars.name = parent.name
         return
 
     # ---------------------------------------------------------------------
@@ -1080,10 +1119,23 @@ class S3ProjectDRRModel(S3Model):
         }
         project_organisation_lead_role = 1
 
+        organisation_help = T("Add all organizations which are involved in different roles in this project")
+
         tablename = "project_organisation"
         table = self.define_table(tablename,
                                   project_id(),
-                                  organisation_id(),
+                                  organisation_id(comment = DIV(A(T("Add Organization"),
+                                                                  _class="colorbox",
+                                                                  _href=URL(c="org", f="organisation",
+                                                                            args="create",
+                                                                            vars=dict(format="popup")),
+                                                                  _target="top",
+                                                                  _title=T("Add Organization")),
+                                                                DIV(_class="tooltip",
+                                                                    _title="%s|%s" % (T("Organization"),
+                                                                                      organisation_help))
+                                                                )
+                                                  ),
                                   Field("role", "integer",
                                         requires = IS_NULL_OR(IS_IN_SET(project_organisation_roles)),
                                         represent = lambda opt, row=None: \
@@ -1095,6 +1147,7 @@ class S3ProjectDRRModel(S3Model):
                                         widget = IS_FLOAT_AMOUNT.widget,
                                         label = T("Funds Contributed by this Organization")),
                                   currency_type(),
+                                  s3.comments(),
                                   *s3.meta_fields())
 
         # Field configuration?
@@ -1199,8 +1252,8 @@ class S3ProjectDRRModel(S3Model):
                                   Field("name",
                                         length=128,
                                         unique=True,
-                                        requires = IS_EMPTY_OR(IS_NOT_IN_DB(db,
-                                                                            "project_beneficiary_type.name"))),
+                                        requires = IS_NOT_IN_DB(db,
+                                                                "project_beneficiary_type.name")),
                                   *s3.meta_fields())
 
         # Field configuration?
@@ -1250,10 +1303,10 @@ class S3ProjectDRRModel(S3Model):
                                   project_id(readable=False,
                                              writable=False),
                                   activity_id(comment=None),
-                                  beneficiary_type_id(),
+                                  beneficiary_type_id(empty=False),
                                   Field("number", "integer",
                                         label = T("Quantity"),
-                                        requires = IS_NULL_OR(IS_INT_IN_RANGE(0, 99999999))),
+                                        requires = IS_INT_IN_RANGE(0, 99999999)),
                                   s3.comments(),
                                   *s3.meta_fields())
 
@@ -1301,12 +1354,22 @@ class S3ProjectDRRModel(S3Model):
                         onaccept=self.project_beneficiary_onaccept,
                         deduplicate=self.project_beneficiary_deduplicate,
                         report_filter=[
-                            S3SearchOptionsWidget(field=["project_id"],
-                                                  name="project",
-                                                  label=T("Project")),
-                            S3SearchOptionsWidget(field=["beneficiary_type_id"],
-                                                  name="beneficiary_type_id",
-                                                  label=T("Beneficiary Type")),
+                            S3SearchOptionsWidget(
+                                field=["project_id"],
+                                name="project",
+                                label=T("Project")
+                            ),
+                            S3SearchOptionsWidget(
+                                field=["beneficiary_type_id"],
+                                name="beneficiary_type_id",
+                                label=T("Beneficiary Type")
+                            ),
+                            # Can't search be VirtualFields currently
+                            # S3SearchLocationHierarchyWidget(
+                                # name="beneficiary_search_L1",
+                                # field="activity_id$L1",
+                                # cols = 3,
+                            # ),
                         ],
                         report_rows=report_fields,
                         report_cols=report_fields,
@@ -1515,10 +1578,12 @@ class S3ProjectTaskModel(S3Model):
 
         # Shortcuts
         add_component = self.add_component
+        comments = s3.comments
         configure = self.configure
         crud_strings = s3.crud_strings
         define_table = self.define_table
         super_link = self.super_link
+        meta_fields = s3.meta_fields
 
         # ---------------------------------------------------------------------
         # Project Milestone
@@ -1535,9 +1600,9 @@ class S3ProjectTaskModel(S3Model):
                                    label = T("Date"),
                                    represent = s3_date_represent,
                                    requires = IS_NULL_OR(IS_DATE(format = s3_date_format))),
-                             s3.comments(),
+                             comments(),
                              format="%(name)s",
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # CRUD Strings
         ADD_MILESTONE = T("Add Milestone")
@@ -1641,7 +1706,7 @@ class S3ProjectTaskModel(S3Model):
                                    represent = lambda opt, row=None: \
                                                project_task_priority_opts.get(opt,
                                                                               UNKNOWN_OPT)),
-                             # Could be an Organisation, a Team or a Person
+                             # Could be a Person, Team or Organisation
                              super_link("pe_id", "pr_pentity",
                                         readable = staff,
                                         writable = staff,
@@ -1694,7 +1759,7 @@ class S3ProjectTaskModel(S3Model):
                                    represent = lambda opt, row=None: \
                                                project_task_status_opts.get(opt,
                                                                             UNKNOWN_OPT)),
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # Field configurations
         # Comment these if you don't need a Site associated with Tasks
@@ -1757,10 +1822,22 @@ class S3ProjectTaskModel(S3Model):
                                 ]
                     ),
                     S3SearchOptionsWidget(
+                        name = "task_search_created_by",
+                        label = T("Created By"),
+                        field = ["created_by"],
+                        cols = 4
+                    ),
+                    S3SearchOptionsWidget(
                         name = "task_search_assignee",
                         label = T("Assigned To"),
                         field = ["pe_id"],
                         cols = 4
+                    ),
+                    S3SearchMinMaxWidget(
+                        name="task_search_date_created",
+                        method="range",
+                        label=T("Date Created"),
+                        field=["created_on"]
                     ),
                     S3SearchMinMaxWidget(
                         name="task_search_date_due",
@@ -1784,6 +1861,7 @@ class S3ProjectTaskModel(S3Model):
                   orderby="project_task.priority",
                   onvalidation=self.task_onvalidation,
                   create_onaccept=self.task_create_onaccept,
+                  create_next=URL(f="task", args=["[id]"]),
                   onaccept=self.task_onaccept,
                   search_method=task_search,
                   list_fields=["id",
@@ -1812,6 +1890,12 @@ class S3ProjectTaskModel(S3Model):
                                                              title=ADD_TASK,
                                                              tooltip=T("A task is a piece of work that an individual or team can do in 1-2 days.")),
                                   ondelete = "CASCADE")
+
+        # ---------------------------------------------------------------------
+        # Custom Methods
+        self.set_method("project_task",
+                        method="dispatch",
+                        action=self.task_dispatch)
 
         # Components
         # Projects (for imports)
@@ -1877,7 +1961,7 @@ class S3ProjectTaskModel(S3Model):
         table = define_table(tablename,
                              task_id(),
                              project_id(),
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # Field configuration
         # CRUD Strings
@@ -1893,7 +1977,7 @@ class S3ProjectTaskModel(S3Model):
         table = define_table(tablename,
                              task_id(),
                              activity_id(),
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # Field configuration
         # CRUD Strings
@@ -1923,7 +2007,7 @@ class S3ProjectTaskModel(S3Model):
                              Field("body", "text",
                                    notnull=True,
                                    label = T("Comment")),
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # Field configuration?
 
@@ -1959,9 +2043,9 @@ class S3ProjectTaskModel(S3Model):
                              Field("hours", "double",
                                    label = "%s (%s)" % (T("Time"),
                                                         T("hours"))),
-                             s3.comments(),
+                             comments(),
                              format="%(comments)s",
-                             *s3.meta_fields())
+                             *meta_fields())
 
         # CRUD Strings
         ADD_TIME = T("Log Time Spent")
@@ -2125,6 +2209,59 @@ class S3ProjectTaskModel(S3Model):
 
     # -------------------------------------------------------------------------
     @staticmethod
+    def task_dispatch(r, **attr):
+        """
+            Send a Task Dispatch notice from a Task
+            - if a location is supplied, this will be formatted as an OpenGeoSMS
+        """
+
+        T = current.T
+        msg = current.msg
+        response = current.response
+
+        if r.representation == "html" and \
+           r.name == "task" and r.id and not r.component:
+
+            record = r.record
+            text = "%s: %s" % (record.name,
+                               record.description)
+
+            # Encode the message as an OpenGeoSMS
+            message = msg.prepare_opengeosms(record.location_id,
+                                             code="ST",
+                                             map="google",
+                                             text=text)
+
+            # URL to redirect to after message sent
+            url = URL(c="project",
+                      f="task",
+                      args=r.id)
+
+            # Create the form
+            if record.pe_id:
+                opts = dict(recipient=record.pe_id)
+            else:
+                opts = dict(recipient_type="pr_person")
+            output = msg.compose(type="SMS",
+                                 message = message,
+                                 url = url,
+                                 **opts)
+
+            # Maintain RHeader for consistency
+            if "rheader" in attr:
+                rheader = attr["rheader"](r)
+                if rheader:
+                    output["rheader"] = rheader
+
+            output["title"] = T("Send Task Notification")
+            response.view = "msg/compose.html"
+            return output
+
+        else:
+            raise HTTP(501, BADMETHOD)
+
+    # -------------------------------------------------------------------------
+    @staticmethod
     def time_onaccept(form):
         """ When Time is logged, update the Task & Activity """
 
@@ -2256,11 +2393,52 @@ class S3ProjectTaskIReportModel(S3Model):
                                   ireport_id(),
                                   *s3.meta_fields())
 
+        self.configure(tablename,
+                       onaccept=self.task_ireport_onaccept)
+
         # ---------------------------------------------------------------------
         # Pass variables back to global scope (response.s3.*)
         #
         return dict(
-        )
+            )
+
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def task_ireport_onaccept(form):
+        """
+            When a Task is linked to an IReport, then populate the location_id
+        """
+
+        vars = form.vars
+        ireport_id = vars.ireport_id
+        task_id = vars.task_id
+
+        db = current.db
+        s3db = current.s3db
+
+        # Check if we already have a Location for the Task
+        table = s3db.project_task
+        query = (table.id == task_id)
+        record = db(query).select(table.location_id,
+                                  limitby=(0, 1)).first()
+        if not record or record.location_id:
+            return
+
+        # Find the Incident Location
+        itable = s3db.irs_ireport
+        query = (itable.id == ireport_id)
+        record = db(query).select(itable.location_id,
+                                  limitby=(0, 1)).first()
+        if not record or not record.location_id:
+            return
+
+        location_id = record.location_id
+
+        # Update the Task
+        query = (table.id == task_id)
+        db(query).update(location_id=location_id)
+
+        return
 
 # -----------------------------------------------------------------------------
 def project_assignee_represent(id):
@@ -2425,6 +2603,8 @@ def project_rheader(r, tabs=[]):
             append((T("Time"), "time")),
         append((T("Comments"), "discuss"))
         append((T("Attachments"), "document"))
+        if settings.has_module("msg"):
+            append((T("Notify"), "dispatch"))
         #(T("Roles"), "job_role"),
         #(T("Assignments"), "human_resource"),
         #(T("Requests"), "req")

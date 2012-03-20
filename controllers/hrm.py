@@ -496,10 +496,10 @@ def person():
         tabs = [(T("Person Details"), None),
                 (address_tab_name, "address"),
                 (T("Contact Details"), "contact"),
-                #(T("Skills"), "competency"),
-                #(T("Credentials"), "credential"),
-                #(T("Certificates"), "certification"),
                 (T("Trainings"), "training"),
+                (T("Certificates"), "certification"),
+                (T("Skills"), "competency"),
+                #(T("Credentials"), "credential"),
                 #(T("Mission Record"), "experience"),
                 (T("Positions"), "human_resource"),
                 (T("Teams"), "group_membership")]
@@ -523,9 +523,10 @@ def person():
                 (hr_record, "human_resource"),
                 (address_tab_name, "address"),
                 (T("Contact Data"), "contact"),
+                (T("Trainings"), "training"),
+                (T("Certificates"), "certification"),
                 (T("Skills"), "competency"),
                 #(T("Credentials"), "credential"),
-                (T("Trainings"), "training"),
                 #(T("Mission Record"), "experience"),
                 (T("Teams"), "group_membership")]
 
@@ -625,7 +626,7 @@ def person():
         return True
     response.s3.prep = prep
 
-    # Post-process
+    # CRUD post-process
     def postp(r, output):
         if r.interactive and r.component and r.component_name == "asset":
             # Provide a link to assign a new Asset
@@ -757,7 +758,7 @@ def group():
         subtitle_create = T("Add New Member"),
         subtitle_list = T("Current Team Members"),
         label_list_button = T("List Members"),
-        label_create_button = T("Add Group Member"),
+        label_create_button = T("Add Team Member"),
         label_delete_button = T("Delete Membership"),
         msg_record_created = T("Team Member added"),
         msg_record_modified = T("Membership updated"),

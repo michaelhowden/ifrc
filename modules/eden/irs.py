@@ -52,7 +52,6 @@ class S3IRSModel(S3Model):
 
         location_id = self.gis_location_id
 
-
         datetime_represent = S3DateTime.datetime_represent
 
         # Shortcuts
@@ -305,23 +304,23 @@ class S3IRSModel(S3Model):
                              s3.comments(),
                              *(s3.lx_fields() + meta_fields()))
         # CRUD strings
-        ADD_INC_REPORT = T("Add Event")
-        LIST_INC_REPORTS = T("List Events")
+        ADD_INC_REPORT = T("Add Incident Report")
+        LIST_INC_REPORTS = T("List Incident Reports")
         s3.crud_strings[tablename] = Storage(
             title_create = ADD_INC_REPORT,
-            title_display = T("Event Details"),
+            title_display = T("Incident Report Details"),
             title_list = LIST_INC_REPORTS,
-            title_update = T("Edit Event"),
-            title_search = T("Search Events"),
-            subtitle_create = T("Add New Event"),
-            subtitle_list = T("Events"),
+            title_update = T("Edit Incident Report"),
+            title_search = T("Search Incident Reports"),
+            subtitle_create = T("Add New Incident Report"),
+            subtitle_list = T("Incident Reports"),
             label_list_button = LIST_INC_REPORTS,
             label_create_button = ADD_INC_REPORT,
-            label_delete_button = T("Delete Event"),
-            msg_record_created = T("Event added"),
-            msg_record_modified = T("Event updated"),
-            msg_record_deleted = T("Event deleted"),
-            msg_list_empty = T("No Events currently registered"))
+            label_delete_button = T("Delete Incident Report"),
+            msg_record_created = T("Incident Report added"),
+            msg_record_modified = T("Incident Report updated"),
+            msg_record_deleted = T("Incident Report deleted"),
+            msg_list_empty = T("No Incident Reports currently registered"))
 
         ireport_search = S3Search(
             advanced=(
@@ -456,7 +455,7 @@ class S3IRSModel(S3Model):
                                      represent = lambda id: \
                                         (id and [db.irs_ireport[id].name] or [NONE])[0],
                                      label = T("Incident"),
-                                     ondelete = "RESTRICT")
+                                     ondelete = "CASCADE")
 
         # ---------------------------------------------------------------------
         # Custom Methods
@@ -786,7 +785,7 @@ S3.timeline.now = '""", now.isoformat(), """';
                 if rheader:
                     output["rheader"] = rheader
 
-            output["title"] = T("Event Timeline")
+            output["title"] = T("Incident Timeline")
             response.view = "timeline.html"
             return output
 
@@ -1052,8 +1051,9 @@ def irs_rheader(r, tabs=[]):
                 # (T("Vehicles"), "vehicle"),
                 # (T("Staff"), "human_resource"),
                 # (T("Tasks"), "task"),
-                # (T("Dispatch"), "dispatch"),
                ]
+        # if settings.has_module("msg"):
+            # tabs.append((T("Dispatch"), "dispatch"))
 
         rheader_tabs = s3_rheader_tabs(r, tabs)
 
@@ -1074,6 +1074,8 @@ def irs_rheader(r, tabs=[]):
                     contact = report.person
             elif report.contact:
                 contact = report.contact
+            if contact:
+                contact = DIV(TH("%s: " % T("Contact")), TD(contact))
 
             #create_request = A(T("Create Request"),
             #                   _class="action-btn colorbox",
@@ -1093,13 +1095,14 @@ def irs_rheader(r, tabs=[]):
                             TR(
                                 TH("%s: " % table.name.label), report.name,
                                 TH("%s: " % table.datetime.label), datetime,
+                                ),
                             TR(
                                 TH("%s: " % table.category.label), category,
                                 TH("%s: " % table.expiry.label), expiry,
                                 ),
                             TR(
                                 TH("%s: " % table.location_id.label), location,
-                                TH("%s: " % T("Contact")), contact),
+                                contact,
                                 ),
                             TR(
                                 TH("%s: " % table.message.label), TD(report.message or "",

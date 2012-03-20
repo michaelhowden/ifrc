@@ -671,7 +671,7 @@ class S3Importer(S3CRUD):
         form = SQLFORM.factory(table_name=self.UPLOAD_TABLE_NAME,
                                labels=labels,
                                formstyle=formstyle,
-                               upload = "uploads/imports",
+                               upload = os.path.join(request.folder, "uploads", "imports"),
                                separator = "",
                                message=self.messages.file_uploaded,
                                *fields)
@@ -1668,7 +1668,9 @@ class S3Importer(S3CRUD):
         """ Defines the upload table """
 
         db = current.db
-
+        uploadfolder = os.path.join(current.request.folder,
+                                    "uploads",
+                                    )
         if cls.UPLOAD_TABLE_NAME not in db:
             upload_table = db.define_table(cls.UPLOAD_TABLE_NAME,
                     Field("controller",
@@ -1678,7 +1680,7 @@ class S3Importer(S3CRUD):
                           readable=False,
                           writable=False),
                     Field("file", "upload",
-                          uploadfolder="uploads/imports",
+                          uploadfolder=os.path.join(current.request.folder, "uploads", "imports"),
                           autodelete=True),
                     Field("filename",
                           readable=False,

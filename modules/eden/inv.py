@@ -224,7 +224,8 @@ $(document).ready(function() {
         self.configure(tablename,
                        super_entity = "supply_item_entity",
                        list_fields = ["id",
-                                      "site_id",
+                                      # This is added in req/req_item_inv_item controller
+                                      #"site_id",
                                       "item_id",
                                       "quantity",
                                       "pack_value",
@@ -350,7 +351,7 @@ class S3IncomingModel(S3Model):
         # Received (In/Receive / Donation / etc)
         #
         inv_recv_type = { 0: NONE,
-                          1: T("Another Stock"),
+                          1: T("Other Warehouse"),
                           2: T("Donation"),
                           3: T("Supplier"),
                         }
@@ -375,6 +376,10 @@ class S3IncomingModel(S3Model):
                                         requires = IS_NULL_OR(IS_DATE(format = s3_date_format)),
                                         represent = s3_date_represent,
                                         widget = S3DateWidget(),
+                                        comment = DIV(_class="tooltip",
+                                                      _title="%s|%s" % (T("Date Received"),
+                                                                        T("Will be filled automatically when the Shipment has been Received"))
+                                                      )
                                         #readable = False # unless the record is locked
                                         ),
                                   Field("type",
@@ -544,9 +549,14 @@ class S3IncomingModel(S3Model):
                       ),
             ))
 
-        self.configure(tablename,
-                       search_method = recv_search)
+        # Redirect to the Items tabs after creation
+        recv_item_url = URL(f="recv", args=["[id]",
+                                            "recv_item"])
 
+        self.configure(tablename,
+                       search_method = recv_search,
+                       create_next = recv_item_url,
+                       update_next = recv_item_url)
         # Component
         self.add_component("inv_recv_item",
                            inv_recv="recv_id")
@@ -585,7 +595,7 @@ class S3IncomingModel(S3Model):
 
         # CRUD strings
         if settings.get_inv_shipment_name() == "order":
-            ADD_RECV_ITEM = T("Add Item to Order")
+            ADD_RECV_ITEM = T("Add New Item to Order")
             LIST_RECV_ITEMS = T("List Order Items")
             s3.crud_strings[tablename] = Storage(
                 title_create = ADD_RECV_ITEM,
@@ -603,7 +613,7 @@ class S3IncomingModel(S3Model):
                 msg_record_deleted = T("Item removed from order"),
                 msg_list_empty = T("No Order Items currently registered"))
         else:
-            ADD_RECV_ITEM = T("Add Item to Shipment")
+            ADD_RECV_ITEM = T("Add New Item to Shipment")
             LIST_RECV_ITEMS = T("List Received Items")
             s3.crud_strings[tablename] = Storage(
                 title_create = ADD_RECV_ITEM,
@@ -670,11 +680,17 @@ class S3IncomingModel(S3Model):
         table.site_id.label = T("By Warehouse")
         table.site_id.represent = s3db.org_site_represent
 
+        record = table[r.id]
+        site_id = record.site_id
+        site = table.site_id.represent(site_id,False)
+
         exporter = S3PDF()
         return exporter(r,
-                        componentname = "recv_item",
-                        formname = T("Goods Received Note"),
-                        filename = T("GRN"),
+                        method="list",
+                        formname="Goods Received Note",
+                        filename="GRN-%s" % site,
+                        report_hide_comments=True,
+                        componentname = "inv_recv_item",
                         **attr
                        )
 
@@ -692,13 +708,19 @@ class S3IncomingModel(S3Model):
         table.type.readable = False
         table.site_id.readable = True
         table.site_id.label = T("By Warehouse")
-        table.site_id.represent = s3dborg_site_represent
+        table.site_id.represent = s3db.org_site_represent
+
+        record = table[r.id]
+        site_id = record.site_id
+        site = table.site_id.represent(site_id,False)
 
         exporter = S3PDF()
         return exporter(r,
-                        componentname = "recv_item",
-                        formname = T("Donation Certificate"),
-                        filename = T("DC"),
+                        method="list",
+                        formname="Donation Certificate",
+                        filename="DC-%s" % site,
+                        report_hide_comments=True,
+                        componentname = "inv_recv_item",
                         **attr
                        )
 
@@ -839,6 +861,13 @@ class S3DistributionModel(S3Model):
         self.set_method(tablename,
                         method="form",
                         action=self.inv_send_form )
+        
+        # Redirect to the Items tabs after creation
+        send_item_url = URL(f="send", args=["[id]",
+                                            "send_item"])
+        self.configure(tablename,
+                        create_next = send_item_url,
+                        update_next = send_item_url)
 
         # =====================================================================
         # Send (Outgoing / Dispatch / etc) Items
@@ -930,11 +959,17 @@ class S3DistributionModel(S3Model):
         table = s3db.inv_recv
         table.date.readable = True
 
+        record = table[r.id]
+        site_id = record.site_id
+        site = table.site_id.represent(site_id,False)
+
         exporter = S3PDF()
         return exporter(r,
-                        componentname = "send_item",
-                        formname = T("Consignment Note"),
-                        filename = "CN",
+                        method="list",
+                        componentname="inv_send_item",
+                        formname="Waybill",
+                        filename="Waybill-%s" % site,
+                        report_hide_comments=True,
                         **attr
                        )
 
@@ -996,7 +1031,7 @@ def inv_tabs(r):
             else:
                 recv_tab = T("Receive")
             inv_tabs = [(T("Warehouse Stock"), "inv_item"),
-                        (T("Incoming"), "incoming/"),
+                        #(T("Incoming"), "incoming/"),
                         (recv_tab, "recv"),
                         (T("Send"), "send", dict(select="sent")),
                         ]
@@ -1083,14 +1118,14 @@ def inv_recv_rheader(r):
             else:
                 grn_btn = A( T("Goods Received Note"),
                               _href = URL(f = "recv",
-                                          args = [record.id, "list.pdf"]
+                                          args = [record.id, "form"]
                                           ),
                               _class = "action-btn"
                               )
                 rfooter.append(grn_btn)
                 dc_btn = A( T("Donation Certificate"),
                               _href = URL(f = "recv",
-                                          args = [record.id, "list.pdf"]
+                                          args = [record.id, "cert"]
                                           ),
                               _class = "action-btn"
                               )
@@ -1180,7 +1215,7 @@ def inv_send_rheader(r):
             else:
                 cn_btn = A( T("Waybill"),
                               _href = URL(f = "send",
-                                          args = [record.id, "list.pdf"]
+                                          args = [record.id, "form"]
                                           ),
                               _class = "action-btn"
                               )
@@ -1222,11 +1257,11 @@ def inv_send_rheader(r):
                                                             ),
                                                 _id = "send_receive",
                                                 _class = "action-btn",
-                                                _title = T("Only use this button to confirm that the shipment has been received by the destination, if the destination will not enter this information into the system directly")
+                                                _title = T("Only use this button to confirm that the shipment has been received by a destination which will not record the shipment directly into the system")
                                                 )
 
                                 receive_btn_confirm = SCRIPT("S3ConfirmClick('#send_receive', '%s')"
-                                                             % T("This shipment will be confirmed as received.") )
+                                                             % T("Confirm that the shipment has been received by a destination which will not record the shipment directly into the system and confirmed as received.") )
                                 rfooter.append(receive_btn)
                                 rfooter.append(receive_btn_confirm)
                         if auth.s3_has_permission("delete",

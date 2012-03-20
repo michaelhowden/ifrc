@@ -332,6 +332,20 @@ class S3RequestManager(object):
                 v = record.get(fieldname, None)
                 if v and v == value:
                     return (value, None)
+                self_id = record[table._id.name]
+                requires = field.requires
+                if field.unique and not requires:
+                    field.requires = IS_NOT_IN_DB(current.db, str(field))
+                    field.requires.set_self_id(self_id)
+                else:
+                    if not isinstance(requires, (list, tuple)):
+                        requires = [requires]
+                    for r in requires:
+                        if hasattr(r, "set_self_id"):
+                            r.set_self_id(self_id)
+                        if hasattr(r, "other") and \
+                            hasattr(r.other, "set_self_id"):
+                            r.other.set_self_id(self_id)
             try:
                 value, error = field.validate(value)
             except:
@@ -2111,14 +2125,19 @@ class S3Resource(object):
         prefix = self.prefix
         name = self.name
 
+        attr = Storage(attributes)
         rfilter = self.rfilter
+
         if rfilter is None:
             rfilter = self.build_query()
         query = rfilter.get_query()
         vfltr = rfilter.get_filter()
 
+        distinct = attr.pop("distinct", False) and True or False
+        distinct = rfilter.distinct or distinct
+        attr["distinct"] = distinct
+
         if vfltr is not None:
-            attr = Storage(attributes)
             if "limitby" in attr:
                 limitby = attr["limitby"]
                 start = limitby[0]
@@ -2129,13 +2148,12 @@ class S3Resource(object):
                 self._slice = True
             else:
                 start = limit = None
-            attributes = attr
             # @todo: override fields => needed for vfilter
-        elif "limitby" in attributes:
+        elif "limitby" in attr:
             self._slice = True
 
         # Get the rows
-        rows = db(query).select(*fields, **attributes)
+        rows = db(query).select(*fields, **attr)
         if vfltr is not None:
             rows = rfilter(rows, start=start, limit=limit)
 
@@ -2260,6 +2278,7 @@ class S3Resource(object):
 
             @param ondelete: on-delete callback
             @param format: the representation format of the request (optional)
+            @param cascade: this is a cascade delete (prevents rollbacks/commits)
 
             @returns: number of records deleted
 
@@ -3096,10 +3115,13 @@ class S3Resource(object):
         """
 
         manager = current.manager
+        model = manager.model
         xml = manager.xml
 
         tablename = self.tablename
         table = self.table
+
+        postprocess = model.get_config(tablename, "onexport", None)
 
         default = (None, None)
 
@@ -3127,6 +3149,7 @@ class S3Resource(object):
         # Generate the element
         element = xml.resource(parent, table, record,
                                fields=dfields,
+                               postprocess=postprocess,
                                url=url)
         # Add the references
         xml.add_references(element, rmap,
@@ -3134,7 +3157,7 @@ class S3Resource(object):
 
         # GIS-encode the element
         download_url = manager.s3.download_url
-        xml.gis_encode(self, record, rmap,
+        xml.gis_encode(self, record, element, rmap,
                        download_url=download_url,
                        marker=marker)
 
@@ -4141,6 +4164,10 @@ class S3Resource(object):
             @param record: the new component record to be linked
         """
 
+        db = current.db
+        manager = current.manager
+        model = manager.model
+
         if self.parent is None or self.linked is None:
             return None
 
@@ -4159,14 +4186,21 @@ class S3Resource(object):
         if not _lkey or not _rkey:
             return None
 
-        # Create the link if it does not already exist
-        db = current.db
         ltable = self.table
+        ltn = ltable._tablename
+        onaccept = model.get_config(ltn, "create_onaccept",
+                   model.get_config(ltn, "onaccept", None))
+
+        # Create the link if it does not already exist
         query = ((ltable[lkey] == _lkey) &
                  (ltable[rkey] == _rkey))
         row = db(query).select(ltable._id, limitby=(0, 1)).first()
         if not row:
-            link_id = ltable.insert(**{lkey:_lkey, rkey:_rkey})
+            form = Storage(vars=Storage({lkey:_lkey, rkey:_rkey}))
+            link_id = ltable.insert(**form.vars)
+            if link_id and onaccept:
+                form.vars[ltable._id.name] = link_id
+                callback(onaccept, form)
         else:
             link_id = row[ltable._id.name]
         return link_id
@@ -4182,64 +4216,89 @@ class S3Resource(object):
                  linkto=None,
                  download_url=None,
                  no_ids=False,
+                 as_rows=False,
                  as_page=False,
                  as_list=False,
-                 as_rows=False,
                  format=None):
         """
-            DRY helper function for SQLTABLEs in CRUD
+            DRY helper function for SQLTABLEs in REST and CRUD
 
-            @param fields: list of fieldnames to display
-            @param start: index of the first record to display
-            @param limit: maximum number of records to display
+            @param fields: list of field selectors
+            @param start: index of the first record
+            @param limit: maximum number of records
             @param left: left outer joins
             @param orderby: orderby for the query
             @param distinct: distinct for the query
             @param linkto: hook to link record IDs
             @param download_url: the default download URL of the application
+            @param as_rows: return bare Rows, no representations
             @param as_page: return the list as JSON page
             @param as_list: return the list as Python list
             @param format: the representation format
         """
 
-        query = self.get_query()
-        vfltr = self.get_filter()
-        rfilter = self.rfilter
-        distinct = self.rfilter.distinct or distinct
-
         db = current.db
         manager = current.manager
         table = self.table
 
-        _left = left
-        if _left is None:
-            _left = []
-        elif not isinstance(left, list):
-            _left = [_left]
+        # Get the query and filters
+        query = self.get_query()
+        vfltr = self.get_filter()
+        rfilter = self.rfilter
 
-        if fields is None:
-            fields = [f.name for f in self.readable_fields()]
-        if table._id.name not in fields and not no_ids:
-            fields.insert(0, table._id.name)
-        lfields, joins, ljoins = self.get_lfields(fields)
-        for join in ljoins:
-            if str(join) not in [str(q) for q in _left]:
-                _left.append(join)
-
-        colnames = [f.colname for f in lfields]
-        headers = dict(map(lambda f: (f.colname, f.label), lfields))
-
+        # Handle distinct-attribute (must respect rfilter.distinct)
+        distinct = self.rfilter.distinct or distinct
         attributes = dict(distinct=distinct)
+
         # Orderby
         if orderby is not None:
             attributes.update(orderby=orderby)
-        # Slice
+
+        # Limitby
         if vfltr is None:
             limitby = self.limitby(start=start, limit=limit)
             if limitby is not None:
                 attributes.update(limitby=limitby)
         else:
+            # Retrieve all records when filtering for virtual fields
+            # => apply start/limit in vfltr instead
             limitby = None
+
+        # Resolve the fields
+        if fields is None:
+            fields = [f.name for f in self.readable_fields()]
+        if table._id.name not in fields and not no_ids:
+            fields.insert(0, table._id.name)
+        lfields, joins, ljoins = self.get_lfields(fields)
+
+        # Left joins
+        left_joins = left
+        if left_joins is None:
+            left_joins = []
+        elif not isinstance(left, list):
+            left_joins = [left_joins]
+
+        # Add the left joins from the field query, de-duplicate
+        for join in ljoins:
+            if str(join) not in [str(q) for q in left_joins]:
+                left_joins.append(join)
+
+        if left_joins:
+            # Try sorting the left joins according to their dependency
+            def __sortleft(x, y):
+                tx, qx = str(x.first), str(x.second)
+                ty, qy = str(y.first), str(y.second)
+                if "%s." % tx in qy:
+                    return -1
+                if "%s." % ty in qx:
+                    return 1
+                return 0
+            try:
+                left_joins.sort(__sortleft)
+            except:
+                pass
+            # Add to attributes
+            attributes.update(left=left_joins)
 
         # Joins
         qstr = str(query)
@@ -4248,9 +4307,9 @@ class S3Resource(object):
                 if str(j) not in qstr:
                     query &= j
 
-        # Left outer joins
-        if _left:
-            attributes.update(left=_left)
+        # Column names and headers
+        colnames = [f.colname for f in lfields]
+        headers = dict(map(lambda f: (f.colname, f.label), lfields))
 
         # Fields in the query
         qfields = [f.field for f in lfields if f.field is not None]
@@ -4258,6 +4317,7 @@ class S3Resource(object):
             qfields.insert(0, table._id)
 
         # Add orderby fields which are not in qfields
+        # @todo: this could need some cleanup/optimization
         if distinct and orderby is not None:
             qf = [str(f) for f in qfields]
             if isinstance(orderby, str):
@@ -4287,12 +4347,15 @@ class S3Resource(object):
         if not rows:
             return None
 
+        # Apply virtual filter
         if vfltr is not None:
             rows = rfilter(rows, start=start, limit=limit)
-        if not rows:
-            return None
 
+        if not rows:
+            # No records found
+            return None
         if as_rows:
+            # No rendering - return bare Rows
             return rows
 
         # Fields to show
@@ -4389,6 +4452,7 @@ class S3ResourceFilter:
         andf = self._andf
 
         manager = current.manager
+        xml = manager.xml
         model = manager.model
         DELETED = manager.DELETED
 
@@ -4694,16 +4758,35 @@ class S3ResourceFilter:
                         # Badly-formed bbox - ignore
                         continue
                     else:
+                        bbox_filter = None
                         if tablename == "gis_feature_query" or \
                            tablename == "gis_cache":
                             gtable = table
                         else:
                             gtable = current.s3db.gis_location
-
-                        bbox_filter = (gtable.lon > float(minLon)) & \
-                                      (gtable.lon < float(maxLon)) & \
-                                      (gtable.lat > float(minLat)) & \
-                                      (gtable.lat < float(maxLat))
+                            if current.deployment_settings.get_gis_spatialdb():
+                                # Use the Spatial Database
+                                minLon = float(minLon)
+                                maxLon = float(maxLon)
+                                minLat = float(minLat)
+                                maxLat = float(maxLat)
+                                bbox = "POLYGON((%s %s, %s %s, %s %s, %s %s, %s %s))" % \
+                                            (minLon, minLat,
+                                             minLon, maxLat,
+                                             maxLon, maxLat,
+                                             maxLon, minLat,
+                                             minLon, minLat)
+                                try:
+                                    # Spatial DAL & Database
+                                    bbox_filter = gtable.the_geom.st_intersects(bbox)
+                                except:
+                                    # Old DAL or non-spatial database
+                                    pass
+                        if not bbox_filter:
+                            bbox_filter = (gtable.lon > float(minLon)) & \
+                                          (gtable.lon < float(maxLon)) & \
+                                          (gtable.lat > float(minLat)) & \
+                                          (gtable.lat < float(maxLat))
                         if fname is not None:
                             # Need a join
                             join = (gtable.id == table[fname])
@@ -4713,6 +4796,7 @@ class S3ResourceFilter:
                     if bbox_query is None:
                         bbox_query = bbox
                     else:
+                        # Merge with the previous BBOX
                         bbox_query = bbox_query & bbox
         return bbox_query
 
