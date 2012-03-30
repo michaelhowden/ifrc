@@ -186,7 +186,8 @@ deployment_settings.fin.currencies = {
     "CHF" :T("Swiss Francs"),
     "EUR" :T("Euros"),
     "GBP" :T("Great British Pounds"),
-    "CAD" :T("Canadian Dollars")
+    "CAD" :T("Canadian Dollars"),
+    "AUD" :T("Australian Dollars")
 }
 #deployment_settings.fin.currency_default = "USD" # Dollars
 #deployment_settings.fin.currency_writable = False # False currently breaks things
